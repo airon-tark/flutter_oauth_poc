@@ -82,3 +82,21 @@ I/flutter (21411): -->                         build - token - gho_LWbE6ZqxjAnnQ
 ```                                                                                                    
 
 You can see we got the `auth code` and then the `token`.
+
+8. To make the build you can run one of these commands
+
+```                 
+# make release ios build
+$ flutter build ios   
+
+# make release android build in a modern way to upload to the Google Play
+$ flutter build appbundle  
+
+# make release android build in an old way if you want to distribute it NOT in Google Play
+$ flutter build apk     
+
+# make a debug build to give your teammates to test
+$ flutter build apk --debug
+```      
+
+PLease note, that to build an iOS you should have XCode tools installed and have a provisioning profile from the Apple developer account.
