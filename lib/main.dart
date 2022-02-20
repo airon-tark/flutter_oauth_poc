@@ -9,14 +9,46 @@ import 'package:flutter/services.dart';
 import 'log.dart';
 import 'dart:io' show HttpServer;
 
+/// Github oauth documentation is here
+/// https://docs.github.com/en/developers/apps/building-oauth-apps/authorizing-oauth-apps
+
+/// Client if from the github settings
+/// You need to take it from your oauth provider
 const clientId = 'cfef6067d4a97abb7ed1';
+
+/// Client secret from the github settings
+/// You need to take it from your oauth provider
 const clientSecret = 'a30d729ce83b7d662ade840677258e267a24ba6f';
-//const redirectUri = 'https://tark.pro/callback';
-const redirectUri = 'tark://callback';
+
+/// The first word in your redirect url,
+/// If your redirect url looks like "foo://bar",
+/// then schema should be called "foo". So this is the word before "://"
+/// Right now we are using "tark" for the demonstration purposes
+const callbackUrlScheme = 'tark';
+
+/// Redirect url set in the github oauth settings
+/// you can use whatever schema your want, for example foobar://anything
+/// The main point is to set the first word of this uri to the AndroidManifest file
+///
+/// The schema better to be unique, for example "com.example" to prevent overlapping
+/// with any application installed on the user device.
+/// Redirect url should be set in the settings of your oauth provider
+const redirectUri = '$callbackUrlScheme://callback';
+
+/// The url of your web app login page.
+/// The structure of the url will vary from provider to provider.
+/// The current structure comes from the github rules
 const githubAuthUrl = 'https://github.com/login/oauth/authorize'
     '?client_id=$clientId'
     '&redirect_uri=$redirectUri';
-const callbackUrlScheme = 'tark';
+
+/// The url of your web app to get the token
+/// The structure of the url will vary from provider to provider.
+/// The current structure comes from the github rules
+const githubTokenUrl = 'https://github.com/login/oauth/access_token'
+    '?client_id=$clientId'
+    '&client_secret=$clientSecret'
+    '&code=';
 
 void main() {
   runApp(const MyApp());
@@ -93,7 +125,12 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  /// Opening the auth web screen and pass inner/external browser parameter
+  /// there.
   onAuthPressed({required bool innerWebView}) async {
+    // we open the web sreen and awaiting for this answer
+    // the web screen handle auth logic inside and return here
+    // the answer in the unified format {code: xxx} or {error: xxx}
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (c) => WebScreen(
@@ -102,39 +139,49 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
 
+    // This happens if user press back button on the web screen
+    // the returned object is null then
     if (result == null) {
       setState(() => _result = 'Authorization declined');
       return;
     }
 
+    // if we have an error - show it
     if (result['error'] != null) {
       setState(() => _result = 'Error:\n${result['error']}');
       return;
     }
 
+    // if we have a code - let's get the token then
+    // the code mean authorization is successful and now
+    // we need to get a token to work with API
     if (result['code'] != null) {
       final code = result['code'];
+
+      // show everything is ok here
       setState(() {
         _result = 'Auth code:\n$code\ngetting token....';
       });
 
+      // this is an artificial delay so you can see the difference
+      // between "got code" and "got token" events
+      // todo remove in production
       await Future.delayed(const Duration(seconds: 2));
 
+      // getting the access token by sending the auth code
+      // to the github API. This link will have another format
+      // for your oauth provider
       final response = await http.get(
-        Uri.parse(
-          'https://github.com/login/oauth/access_token'
-          '?client_id=$clientId'
-          '&client_secret=$clientSecret'
-          '&code=$code',
-        ),
+        Uri.parse('$githubTokenUrl$code'),
         headers: {
           'Accept': 'application/json',
         },
       );
 
-      final responseObject = jsonDecode(response.body);
-      final token = responseObject['access_token'];
+      // parse the token
+      final token = jsonDecode(response.body)['access_token'];
 
+      // show it
       setState(() => _result = 'Token:\n$token');
 
       l('build', 'token', token);
@@ -142,7 +189,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
+/// Web screen that handles both inner web view and the opening of external browser
+/// Using stateful widget, because we are opening the new screen in the init state
 class WebScreen extends StatefulWidget {
+  /// If false, we will open the external browser
+  /// If true, the inner webview will be opened
   final bool innerWebView;
 
   const WebScreen({
@@ -158,7 +209,8 @@ class _WebScreenState extends State<WebScreen> {
   @override
   void initState() {
     if (!widget.innerWebView) {
-      authWithExternalWebView();
+      // if it set to use external browser, we open it right on screen start
+      _authWithExternalWebView();
     }
     super.initState();
   }
@@ -174,6 +226,8 @@ class _WebScreenState extends State<WebScreen> {
       autofocus: true,
       focusNode: FocusNode(),
       onKey: (key) {
+        // the proof that you can listen for the keyboard keys while user
+        // using the inner web view.
         l('build', 'onKey', key);
       },
       child: Scaffold(
@@ -185,10 +239,13 @@ class _WebScreenState extends State<WebScreen> {
             initialUrl: githubAuthUrl,
             javascriptMode: JavascriptMode.unrestricted,
             navigationDelegate: (NavigationRequest request) {
+              // The way webview listening the URL changed (redirection)
               l('build', 'onUrlChange', request.url);
 
+              // if the redirection url is our url, we then handle the response
+              // which can be success or error
               if (request.url.startsWith(redirectUri)) {
-                handleAuthResponse(request.url);
+                _handleAuthResponse(request.url);
                 return NavigationDecision.prevent;
               }
 
@@ -201,22 +258,34 @@ class _WebScreenState extends State<WebScreen> {
     );
   }
 
-  authWithExternalWebView() async {
+  //
+
+  _authWithExternalWebView() async {
     try {
+      // auth with external browser performs by the 3rd party library
+      // it has different way for Android and iOS
+      // the library is https://pub.dev/packages/flutter_web_auth
       final result = await FlutterWebAuth.authenticate(
         url: githubAuthUrl,
         callbackUrlScheme: callbackUrlScheme,
       );
-      handleAuthResponse(result);
+      _handleAuthResponse(result);
     } on PlatformException catch (e) {
+      // If auth is cancelled or any other error - the library
+      // throw the exception. We catch it and return the error
+      // in a standard way for us. So the root screen has the error answer
+      // in the same format both for inner and external browsers
       Navigator.of(context).pop({
         'error': e,
       });
     }
   }
 
-  handleAuthResponse(String response) {
+  _handleAuthResponse(String response) {
     if (response.contains('?code=')) {
+      // parsing the auth code from the response
+      // the response structure can be different for different providers
+      // so this parsing logic should be adjusted for your provider
       final code = response.split('=')[1];
       l('build', 'code', code);
       Navigator.of(context).pop({
@@ -226,7 +295,11 @@ class _WebScreenState extends State<WebScreen> {
     }
 
     if (response.contains('?error=')) {
-      //  tark://callback?error=access_denied&error_description=The+user+has+denied+your+application+access.&error_uri=https%3A%2F%2Fdocs.github.com%2Fapps%2Fmanaging-oauth-apps%2Ftroubleshooting-authorization-request-errors%2F%23access-denied
+      // the error response is also specific for the Github oauth way
+      // below is the redirect url structure for the github
+      // tark://callback?error=access_denied&error_description=The+user+has+denied+your+application+access.&error_uri=https%3A%2F%2Fdocs.github.com%2Fapps%2Fmanaging-oauth-apps%2Ftroubleshooting-authorization-request-errors%2F%23access-denied
+      // your provider can have another url structure, so this  parsing logic should be
+      // adjusted
       final error = response.split('=')[1].split('&')[0];
       l('build', 'error', error);
       Navigator.of(context).pop({
