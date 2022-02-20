@@ -36,7 +36,17 @@
             </intent-filter>
             
         </activity>
-        
+
+        <!--
+        Very important activity, it should be here exactly with the name (comes from the library requirement)
+        schema can be any word you need. If your redirect url looks like "foo://bar",
+        then schema should be called "foo". So this is the word before "://"
+        The schema better to be unique, for example "com.example" to prevent overlapping
+        with any application installed on the user device.
+
+        The activity name MUST be "com.linusu.flutter_web_auth.CallbackActivity"
+        You can't change it.
+        -->
         <activity
                 android:name="com.linusu.flutter_web_auth.CallbackActivity"
                 android:exported="true">
